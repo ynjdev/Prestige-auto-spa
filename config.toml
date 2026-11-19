@@ -1,0 +1,60 @@
+# ─── Clipper config ── edit this per campaign ───────────────────────────────
+
+[campaign]
+name = "My Campaign"
+# Platforms you accept. Options: tiktok, instagram, youtube, x, facebook
+allowed_platforms = ["tiktok", "instagram", "youtube"]
+# Clips posted before this date are rejected. Leave "" to disable. Format YYYY-MM-DD
+campaign_start = ""
+# Every one of these must appear in the post caption (case-insensitive). e.g. ["#mybrand", "@mybrand"]
+required_tags = []
+min_duration_sec = 5
+max_duration_sec = 180
+# Reject clips below this view count (0 = off)
+min_views = 0
+
+[fraud]
+# Bot checks only run once a clip has at least this many views
+check_above_views = 10000
+# likes / views below this = inorganic. Real short-form is usually 2-10%. 0.003 = 0.3%
+min_like_rate = 0.003
+# a clip with this many views and literally zero comments is flagged
+zero_comment_views = 50000
+# Two videos count as the same clip if their frame fingerprints are within this
+# distance (0-64). Lower = stricter. 10 works well for reuploads/re-encodes.
+same_video_distance = 10
+
+[enforcement]
+# Strikes reach this number -> clipper is banned and every future submission auto-rejected
+ban_at_points = 3
+# Points per violation. 3 = instant ban with the default ban_at_points.
+[enforcement.points]
+stolen_clip = 3          # reuploaded another clipper's video
+account_not_yours = 3    # submitted a social account registered to someone else
+botted_views = 2         # inorganic engagement (second offence = ban)
+missing_tags = 1
+posted_before_start = 1
+too_short = 1
+too_long = 1
+platform_not_allowed = 1
+below_min_views = 0
+duplicate = 0            # same link submitted twice - just rejected
+unavailable = 0          # private/deleted - just rejected, no strike
+
+[scoring]
+# Only clips scoring at least this (0-100) can land in ready_to_post
+min_score = 55
+# Max clips collected per batch
+top_n = 10
+# View count that earns full view points
+target_views = 1000000
+# Duration sweet spot in seconds (full points inside this range)
+ideal_duration = [12, 60]
+
+[download]
+# Parallel downloads
+workers = 4
+# Instagram/TikTok sometimes need you logged in. Set to "chrome", "firefox", "safari", "edge" or "" for none
+cookies_from_browser = ""
+# Or a Netscape cookies.txt path
+cookies_file = ""
