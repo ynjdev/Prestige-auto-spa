@@ -1,8 +1,5 @@
-"""SQLite memory: every clip ever seen, strikes, bans, and who owns which account.
-
-This is what lets the system catch a clip that was approved last week being
-re-submitted today, or a banned clipper coming back.
-"""
+"""Remembers campaigns you've checked and every moment already clipped, so you
+never post the same moment twice (duplicate clips get rejected)."""
 from __future__ import annotations
 
 import json
@@ -11,39 +8,11 @@ import time
 from pathlib import Path
 
 SCHEMA = """
-CREATE TABLE IF NOT EXISTS clippers (
-    name TEXT PRIMARY KEY,
-    points INTEGER NOT NULL DEFAULT 0,
-    banned INTEGER NOT NULL DEFAULT 0,
-    ban_reason TEXT,
-    banned_at REAL
+CREATE TABLE IF NOT EXISTS campaigns (url TEXT PRIMARY KEY, data TEXT, checked_at REAL);
+CREATE TABLE IF NOT EXISTS moments (
+    source_key TEXT, start REAL, end REAL, campaign TEXT, file TEXT, created_at REAL
 );
-CREATE TABLE IF NOT EXISTS accounts (
-    platform TEXT NOT NULL,
-    account TEXT NOT NULL,
-    owner TEXT NOT NULL,
-    PRIMARY KEY (platform, account)
-);
-CREATE TABLE IF NOT EXISTS clips (
-    key TEXT PRIMARY KEY,          -- normalised url
-    video_key TEXT,                -- platform:video_id once fetched
-    url TEXT NOT NULL,
-    submitter TEXT NOT NULL,
-    platform TEXT,
-    account TEXT,
-    decision TEXT,                 -- approve / reject / manual
-    reasons TEXT,                  -- json list
-    score REAL,
-    views INTEGER,
-    fingerprint TEXT,              -- json list of frame hashes
-    file TEXT,
-    batch TEXT,
-    seen_at REAL
-);
-CREATE INDEX IF NOT EXISTS clips_video_key ON clips(video_key);
-CREATE TABLE IF NOT EXISTS strikes (
-    name TEXT, points INTEGER, reason TEXT, url TEXT, batch TEXT, at REAL
-);
+CREATE INDEX IF NOT EXISTS moments_src ON moments(source_key);
 """
 
 
@@ -54,87 +23,20 @@ class DB:
         self.conn.row_factory = sqlite3.Row
         self.conn.executescript(SCHEMA)
 
-    def commit(self):
+    def save_campaign(self, url: str, data: dict):
+        self.conn.execute("INSERT OR REPLACE INTO campaigns VALUES (?,?,?)", (url, json.dumps(data), time.time()))
         self.conn.commit()
 
-    # clippers ---------------------------------------------------------------
-    def clipper(self, name: str) -> sqlite3.Row | None:
-        return self.conn.execute("SELECT * FROM clippers WHERE name=?", (name,)).fetchone()
+    def campaigns(self, max_age_hours: float | None = None) -> list[dict]:
+        rows = self.conn.execute("SELECT data, checked_at FROM campaigns ORDER BY checked_at DESC").fetchall()
+        cutoff = time.time() - max_age_hours * 3600 if max_age_hours else 0
+        return [json.loads(r["data"]) for r in rows if r["checked_at"] >= cutoff]
 
-    def is_banned(self, name: str) -> bool:
-        r = self.clipper(name)
-        return bool(r and r["banned"])
+    def used(self, source_key: str) -> list[tuple[float, float]]:
+        return [(r["start"], r["end"]) for r in
+                self.conn.execute("SELECT start, end FROM moments WHERE source_key=?", (source_key,))]
 
-    def add_points(self, name: str, points: int, reason: str, url: str, batch: str) -> int:
-        self.conn.execute("INSERT OR IGNORE INTO clippers(name) VALUES (?)", (name,))
-        if points:
-            self.conn.execute("UPDATE clippers SET points = points + ? WHERE name=?", (points, name))
-            self.conn.execute(
-                "INSERT INTO strikes VALUES (?,?,?,?,?,?)", (name, points, reason, url, batch, time.time())
-            )
-        return self.clipper(name)["points"]
-
-    def ban(self, name: str, reason: str):
-        self.conn.execute("INSERT OR IGNORE INTO clippers(name) VALUES (?)", (name,))
-        self.conn.execute(
-            "UPDATE clippers SET banned=1, ban_reason=?, banned_at=? WHERE name=?", (reason, time.time(), name)
-        )
-
-    def unban(self, name: str, reset_points: bool = True):
-        self.conn.execute(
-            "UPDATE clippers SET banned=0, ban_reason=NULL, banned_at=NULL"
-            + (", points=0" if reset_points else "")
-            + " WHERE name=?",
-            (name,),
-        )
-
-    def banned_list(self) -> list[sqlite3.Row]:
-        return self.conn.execute("SELECT * FROM clippers WHERE banned=1 ORDER BY banned_at").fetchall()
-
-    def all_clippers(self) -> list[sqlite3.Row]:
-        return self.conn.execute("SELECT * FROM clippers ORDER BY banned DESC, points DESC, name").fetchall()
-
-    # accounts -------------------------------------------------------------
-    def account_owner(self, platform: str, account: str) -> str | None:
-        r = self.conn.execute(
-            "SELECT owner FROM accounts WHERE platform=? AND account=?", (platform, account)
-        ).fetchone()
-        return r["owner"] if r else None
-
-    def claim_account(self, platform: str, account: str, owner: str):
-        self.conn.execute("INSERT OR IGNORE INTO accounts VALUES (?,?,?)", (platform, account, owner))
-
-    # clips ----------------------------------------------------------------
-    def clip(self, key: str) -> sqlite3.Row | None:
-        return self.conn.execute("SELECT * FROM clips WHERE key=?", (key,)).fetchone()
-
-    def clip_by_video(self, video_key: str) -> sqlite3.Row | None:
-        return self.conn.execute(
-            "SELECT * FROM clips WHERE video_key=? ORDER BY seen_at LIMIT 1", (video_key,)
-        ).fetchone()
-
-    def fingerprints(self) -> list[tuple[str, str, list[int]]]:
-        """(submitter, url, hashes) for every clip we have a fingerprint for."""
-        rows = self.conn.execute(
-            "SELECT submitter, url, fingerprint FROM clips WHERE fingerprint IS NOT NULL ORDER BY seen_at"
-        ).fetchall()
-        return [(r["submitter"], r["url"], json.loads(r["fingerprint"])) for r in rows]
-
-    def save_clip(self, **c):
-        c.setdefault("seen_at", time.time())
-        if isinstance(c.get("reasons"), list):
-            c["reasons"] = json.dumps(c["reasons"])
-        if isinstance(c.get("fingerprint"), list):
-            c["fingerprint"] = json.dumps(c["fingerprint"])
-        cols = ",".join(c)
-        self.conn.execute(
-            f"INSERT OR REPLACE INTO clips({cols}) VALUES ({','.join('?' * len(c))})", tuple(c.values())
-        )
-
-    def accounts_of(self, owner: str) -> list[sqlite3.Row]:
-        return self.conn.execute("SELECT * FROM accounts WHERE owner=?", (owner,)).fetchall()
-
-    def release_account(self, platform: str, account: str) -> int:
-        return self.conn.execute(
-            "DELETE FROM accounts WHERE platform=? AND account=?", (platform, account.lower())
-        ).rowcount
+    def add_moment(self, source_key: str, start: float, end: float, campaign: str, file: str):
+        self.conn.execute("INSERT INTO moments VALUES (?,?,?,?,?,?)",
+                          (source_key, start, end, campaign, file, time.time()))
+        self.conn.commit()

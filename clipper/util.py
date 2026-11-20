@@ -1,8 +1,8 @@
-"""URL / name normalisation helpers."""
+"""Small helpers."""
 from __future__ import annotations
 
 import re
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import urlparse
 
 URL_RE = re.compile(r"https?://[^\s<>\"'\]\[)(,|]+", re.I)
 
@@ -23,34 +23,10 @@ def platform_of(url: str) -> str:
     return "other"
 
 
-def normalize_url(url: str) -> str:
-    """Canonical form used to detect the same link submitted twice."""
-    url = url.strip().rstrip(".,;")
-    p = urlparse(url)
-    host = (p.hostname or "").lower()
-    for prefix in ("www.", "m.", "mobile."):
-        if host.startswith(prefix):
-            host = host[len(prefix):]
-    path = re.sub(r"/+$", "", p.path)
-    if host in ("youtube.com",) and path == "/watch":
-        vid = parse_qs(p.query).get("v", [""])[0]
-        return f"youtube.com/shorts/{vid}"
-    if host == "youtu.be":
-        return f"youtube.com/shorts{path}"
-    if host == "youtube.com" and path.startswith("/shorts/"):
-        return f"youtube.com{path}"
-    # instagram /reels/ and /reel/ and /p/ point at the same media id
-    if host == "instagram.com":
-        m = re.search(r"/(?:reels?|p|tv)/([A-Za-z0-9_-]+)", path)
-        if m:
-            return f"instagram.com/reel/{m.group(1)}"
-    return f"{host}{path}"
-
-
 def find_urls(text: str) -> list[str]:
-    return [u.rstrip(".,;") for u in URL_RE.findall(text or "")]
+    return list(dict.fromkeys(u.rstrip(".,;") for u in URL_RE.findall(text or "")))
 
 
-def clean_name(name: str | None) -> str:
-    name = (name or "").strip().lstrip("@").strip()
-    return re.sub(r"\s+", " ", name).lower()
+def slug(s: str, n: int = 40) -> str:
+    s = re.sub(r"[^A-Za-z0-9]+", "-", s).strip("-").lower()
+    return s[:n].strip("-") or "campaign"

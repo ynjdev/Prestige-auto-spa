@@ -1,24 +1,22 @@
-# Clipper: Whop Content Rewards clip pipeline
+# Clipper: Whop Content Rewards, done for you
 
-You send it the submissions doc. It does the rest:
+Two jobs, so all you do is caption and post:
 
-- **Enforces your rules**: platform, length, required tags, posting date and minimum views.
-- **Catches cheaters**:
-  - reuploads of another clipper's video, even re-encoded or trimmed
-  - one link submitted twice, or the same video under a second link
-  - someone submitting an account that belongs to another clipper
-  - botted views
-- **Strikes and bans**: every violation adds points, and enough points bans the clipper. Bans carry over between batches, so a banned clipper is rejected automatically from then on.
-- **Collects the best clips**: approved clips get a 0–100 score. The top ones go into `ready_to_post/`, ranked, with the original uploader's metadata removed. Cross-posts of the same clip are collected only once.
-- **Writes your to-do list**: who to ban, what to reject (with a reason you can copy and paste), and what to approve.
-
-**All you do:** click the actions into Whop, then caption and post the clips.
-
-> **Why you still click in Whop:** Whop's API can *list* bounty submissions, but it has no endpoint to approve, reject or ban (as of Nov 2026). Those actions exist only in the Whop dashboard. Clipper makes every decision and gives you copy buttons, so it's a few minutes of clicking. If you don't act within 48 hours, Whop may auto-approve submissions its own review AI marks as legit, so clear the reject list promptly.
+1. **Find the money.** Send it any campaign links you come across. It ranks them by what they'd actually pay *you*, using the rules from the clipping tutorial:
+   - the **pay per 1K views** on the platforms you post to
+   - a **low minimum payout**, so you don't need crazy views to get paid
+   - **lots of budget left**, and how fast the rest is being spent
+   - **accepting clips right now**
+2. **Make the clips.** Send it a campaign's brief (the Google Doc). It:
+   - downloads the source videos
+   - transcribes them on your computer
+   - picks the best moments
+   - cuts them into vertical 1080×1920 clips that fit the brief's length rules
+   - lists the tags every caption needs and the brief's do's and don'ts
 
 ---
 
-## Setup (once, on your computer)
+## Setup (once)
 
 macOS:
 
@@ -27,85 +25,88 @@ brew install python ffmpeg
 git clone <this repo> && cd Prestige-auto-spa
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e .
+playwright install chromium
+clipper setup      # downloads the speech model (~200 MB), checks the browser
+clipper login      # log in to Whop once in the window that opens
 ```
 
-Windows: install Python 3.11+ and ffmpeg (`winget install Gyan.FFmpeg`), then run the same `pip install -e .`.
+Windows: install Python 3.11+ and ffmpeg (`winget install Gyan.FFmpeg`), then run the same commands.
 
-Then open `config.toml` and set your campaign rules (it's commented line by line).
+**Recommended:** set `ANTHROPIC_API_KEY` so Claude picks the moments. It reads the whole transcript and the brief, then chooses self-contained moments with a strong hook. It costs about 10–20¢ per hour of source video (my estimate, not a measured figure). Without a key, a basic loudness-and-talking heuristic is used. It works, but the picks are much weaker.
 
-## Every batch
+Open `config.toml` and set **`typical_views`** to what your clips usually get. The whole profit ranking depends on that number.
 
-**Option A: hands-off.** Leave this running:
+## Every day
 
 ```bash
 clipper watch
 ```
 
-Drop each submissions doc into the `inbox/` folder. It's processed automatically and moved to `inbox/done/`.
+Leave that running and drop files into `inbox/`:
 
-**Option B: one doc at a time.**
-
-```bash
-clipper run ~/Downloads/submissions.xlsx
-```
-
-Then open `output/<batch>/report.html`:
-
-| Section | What you do |
+| You drop in | It does |
 |---|---|
-| **Ready to post** | Watch, caption, post. Files are in `ready_to_post/`. Write your captions in `captions.csv`. |
-| **1 · Ban in Whop** | Ban these clippers. |
-| **2 · Reject in Whop** | Reject each one. Use **Copy reason** and paste it in. |
-| **3 · Approve in Whop** | Approve these. |
-| **Check by hand** | Links that wouldn't load (private, deleted, or the platform blocked the download). They're retried on the next run. |
+| a `.txt` of Whop campaign links (any you find, one per line) | ranks them → `output/campaigns/<time>/campaigns.html` |
+| a Discover or listing page link in that `.txt` | opens every campaign on it and ranks those too |
+| a campaign brief: `.docx`, `.pdf`, or a `.txt` with the Google Doc link | makes clips → `output/<campaign>/<time>/clips.html` |
 
-The same lists are in `whop_actions.csv` and `bans.txt`.
-
-## What the doc can look like
-
-Any of these work: `.xlsx`, `.csv`, `.docx`, `.txt`, `.json`, or text pasted from Discord or Whop.
-
-- **With column headers** (e.g. `Username | Video Link | Views`): the columns are detected automatically.
-- **Without headers:** every TikTok, Instagram, YouTube, X or Facebook link becomes a submission, and the name on the same line (or the line just above) becomes the clipper.
-- **Other links** (your Whop page, Google Drive): listed under *Ignored links*, never silently dropped.
-
-## Rules and points (defaults, all in `config.toml`)
-
-| Violation | Points | Notes |
-|---|---|---|
-| Reupload of another clipper's video | 3 → **instant ban** | Matched by video fingerprint, not by link. The first submitter keeps it. |
-| Account registered to another clipper | 3 → **instant ban** | The first clipper to submit a social account owns it. |
-| Botted views | 2 | Below a 0.3% like rate, or zero comments on 50k+ views. A second offence means a ban. |
-| Missing tags / before start date / too short / too long / wrong platform | 1 each | |
-| Duplicate link, below min views, deleted video | 0 | Rejected, no strike. |
-
-A clipper hits `ban_at_points = 3` → banned. When a clipper is banned, their other clips in that same batch are rejected too.
-
-## Commands
+Or run the steps directly:
 
 ```bash
-clipper run <doc> [more docs]       # process docs
-clipper watch                       # process anything dropped into inbox/
-clipper clippers                    # everyone: points, bans, linked accounts
-clipper ban <name> --reason "..."   # manual ban
-clipper unban <name>                # lift a ban (resets points; --keep-points to keep them)
-clipper release-account tiktok <account_id>   # free an account claimed by the wrong person
+clipper find https://whop.com/... https://whop.com/...        # rank campaigns
+clipper make "https://docs.google.com/document/d/..."          # brief -> clips
+clipper make brief.docx --source https://youtu.be/... --count 15
 ```
 
-Everything is remembered in `data/clipper.db`. Back that file up, because it holds your ban list and clip history.
+Then:
 
-## Limits you should know
+1. Open `campaigns.html`. Join the top ones on Whop.
+2. Send each one's brief to `inbox/`. The brief is locked until you join.
+3. Open `clips.html`. Watch the clips, copy the required tags, caption, post, and submit the links on Whop.
 
-- **Bot detection is a heuristic.** It flags engagement far below normal. It can't see a platform's internal fraud data. Tune `min_like_rate` if it is too strict or too loose for your niche.
-- **Reupload matching** catches re-encodes, resizes and trims. It will not reliably catch heavily edited copies (mirrored, cropped hard, big overlays).
-- **Instagram and TikTok sometimes block anonymous downloads.** If many links land in *Check by hand*, set `cookies_from_browser = "chrome"` (or your browser) in `config.toml` and stay logged in there.
-- **Instagram often hides view counts.** A views column in your doc fills the gap. Otherwise the score treats views as neutral.
-- **Account ownership is first come, first served.** If someone claims an account first, fix it with `release-account`.
+## How the ranking works
+
+Your views swing from clip to clip, so the tool doesn't assume every clip gets exactly `typical_views`. It spreads the estimate around that number: most clips near it, a few that pop off, some that flop.
+
+For each platform you post on:
+
+- A clip that doesn't reach the **minimum payout** earns **$0**.
+- Above that, you earn the **rate per 1K**, up to the **max payout**.
+
+Averaging over that spread gives **avg $ per clip**, cross-posted to every platform the campaign pays on. A high minimum payout lowers this number, because more of your clips fall short. That's the tutorial's advice turned into math.
+
+The average is then scaled down when:
+
+- **the budget left is small:** under `comfortable_budget`, $2,000 by default
+- **the budget is running out fast:** the tool takes spent ÷ days since launch and works out how many days are left. Under `comfortable_days` (7) gets a lower score.
+
+**Skipped:**
+
+- not accepting clips
+- doesn't pay on your platforms
+- rate under your minimum
+- under `min_chance_paid` (40%) of your clips would reach the minimum payout
+- under `min_budget_left`
+
+The page also shows what one clip earns at 1k, 5k, 10k and 50k views. The board keeps every campaign you've sent in the last 24 hours, and resending a link refreshes it.
+
+## Staying out of trouble
+
+- **No repeats:** the same moment of a source video is never clipped twice, so you don't post duplicates. Duplicates get rejected.
+- **Length rules:** clips always fit the brief's length limits, and cuts start and end on sentence boundaries.
+- **Tags and rules up front:** `clips.html` shows the tags every caption needs (with a copy button) and the brief's don'ts.
+- **Clean files:** clips are fresh edits with the source file's metadata stripped.
+
+## Limits
+
+- **Reading Whop pages:** the reader was built from the labels in the tutorial video. They are "Per 1K views", "Min payout", "Max payout", "Budget $X / $Y" and "Not accepting clips". It has never been run against a live Whop page, because whop.com was blocked where this was built. If a campaign shows up as "couldn't read pay rates", open the page, press Ctrl+A then Ctrl+C, paste into a `.txt` and drop it in `inbox/`. Pasted text works the same way. If Whop changes its page layout, the reader needs updating.
+- **Estimates, not guarantees:** the dollar figures depend on your `typical_views` and on how fast other clippers use up the budget.
+- **Brief rules:** they're pulled out by keywords. Skim the real brief once.
+- **Logged-in downloads:** some sources (Drive, Instagram) need you logged in. Set `cookies_from_browser` in `config.toml`.
+- **Posting:** it doesn't post or submit for you. Whop has no public API for submitting clips to Content Rewards.
 
 ## Tests
 
 ```bash
 pip install -e '.[dev]' && pytest
 ```
-
-The tests generate real video files with ffmpeg. They run two batches covering a stolen reupload, botted views, a duplicate link, a claimed account, a banned clipper coming back, an unloadable link, tags and the campaign start date.
