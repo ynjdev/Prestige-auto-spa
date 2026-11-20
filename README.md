@@ -103,7 +103,7 @@ The page also shows what one clip earns at 1k, 5k, 10k and 50k views. The board 
 - **Estimates, not guarantees:** the dollar figures depend on your `typical_views` and on how fast other clippers use up the budget.
 - **Brief rules:** they're pulled out by keywords. Skim the real brief once.
 - **Logged-in downloads:** some sources (Drive, Instagram) need you logged in. Set `cookies_from_browser` in `config.toml`.
-- **Posting:** it doesn't post or submit for you. Whop has no public API for submitting clips to Content Rewards.
+- **Posting:** it doesn't post or submit for you. Whop's API has endpoints for "bounty" submissions, but I couldn't confirm they cover Content Rewards campaigns.
 
 ## Tests
 
